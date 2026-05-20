@@ -1,8 +1,8 @@
 """Statistical comparison functions for Legacy vs FixGrower groups."""
 
+import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
-import statsmodels.stats.multitest as smm
 from scipy.stats import mannwhitneyu, shapiro, ttest_ind
 
 
@@ -67,6 +67,100 @@ def compare_legacy_fixgrower(
     return pd.DataFrame([result])
 
 
+def compare_fixation_growth_by_day(
+    df: pd.DataFrame,
+    max_days: int,
+    metric_col: str = "fixation_growth",
+    *,
+    verbose: bool = False,
+) -> dict[int, dict]:
+    """Per-day Mann-Whitney U with Bonferroni multiplicity on *p*-values.
+
+    For each curriculum day ``1 .. max_days`` (matching
+    ``days_relative_to_stage_5``), compares *metric_col* between Legacy and
+    FixGrower. ``p_adj`` multiplies the raw *p*-value by *max_days*.
+    Original notebook annotated stars using raw ``p_value`` (not ``p_adj``).
+
+    Parameters
+    ----------
+    df:
+        Must contain ``days_relative_to_stage_5``, ``fix_experiment``, and
+        *metric_col*.
+    max_days:
+        Maximum day index tested and Bonferroni factor.
+    metric_col:
+        Column to compare (default ``fixation_growth``).
+    verbose:
+        If ``True``, print per-day summaries to stdout.
+
+    Returns
+    -------
+    dict[int, dict]
+        Keys ``1 .. max_days`` with ``test_type``, ``stat``, ``p_value``,
+        ``p_adj``, ``normality_Legacy``, ``normality_FixGrower``.
+    """
+    results: dict[int, dict] = {}
+
+    for day in range(1, max_days + 1):
+        day_data = df.loc[df["days_relative_to_stage_5"] == day]
+
+        group_legacy = (
+            day_data.loc[day_data["fix_experiment"] == "Legacy", metric_col]
+            .dropna()
+        )
+        group_fixgrower = (
+            day_data.loc[
+                day_data["fix_experiment"] == "FixGrower",
+                metric_col,
+            ].dropna()
+        )
+
+        normality_legacy = (
+            shapiro(group_legacy).pvalue > 0.05 if len(group_legacy) >= 3 else False
+        )
+        normality_fixgrower = (
+            shapiro(group_fixgrower).pvalue > 0.05
+            if len(group_fixgrower) >= 3
+            else False
+        )
+
+        if len(group_legacy) == 0 or len(group_fixgrower) == 0:
+            test_type = "insufficient data"
+            stat = np.nan
+            p_val = np.nan
+        else:
+            test_type = "mann-whitney"
+            stat, p_val = mannwhitneyu(
+                group_legacy, group_fixgrower, alternative="two-sided"
+            )
+
+        p_adj = (
+            min(float(p_val) * max_days, 1.0) if not np.isnan(p_val) else np.nan
+        )
+
+        results[day] = {
+            "test_type": test_type,
+            "stat": stat,
+            "p_value": p_val,
+            "p_adj": p_adj,
+            "normality_Legacy": normality_legacy,
+            "normality_FixGrower": normality_fixgrower,
+        }
+
+        if verbose:
+            sig = "**SIGNIFICANT**" if (not np.isnan(p_adj) and p_adj < 0.05) else ""
+            print(f"Day {day} [{test_type}]: {sig}")
+            print(
+                f"  Normality Legacy: {normality_legacy}, "
+                f"Normality FixGrower: {normality_fixgrower}"
+            )
+            print(
+                f"  Stat = {stat:.3f}, p = {p_val:.3e}, Bonferroni adj p = {p_adj:.3e}\n"
+            )
+
+    return results
+
+
 def compare_legacy_fixgrower_mixedlm(
     df: pd.DataFrame,
     metric_col: str,
@@ -89,8 +183,13 @@ def compare_legacy_fixgrower_mixedlm(
     ].empty:
         raise ValueError("Both groups (Legacy and FixGrower) must be present.")
 
+    # Legacy as reference baseline (manuscript-aligned). Alphabetical ordering would
+    # put FixGrower first as baseline, renaming the contrast T.Legacy vs T.FixGrower.
+    formula = (
+        f'{metric_col} ~ C(fix_experiment, Treatment(reference="Legacy"))'
+    )
     model = smf.mixedlm(
-        formula=f"{metric_col} ~ fix_experiment",
+        formula=formula,
         data=df,
         groups=df["animal_id"],
     )
@@ -99,9 +198,13 @@ def compare_legacy_fixgrower_mixedlm(
     except Exception as e:
         raise RuntimeError(f"Model fitting failed: {e}") from e
 
-    coef_key = "fix_experiment[T.FixGrower]"
-    if coef_key not in fit.params.index:
-        raise ValueError(f"Coefficient '{coef_key}' not found in model.")
+    coef_keys = [k for k in fit.params.index if "FixGrower" in str(k)]
+    if len(coef_keys) != 1:
+        raise ValueError(
+            "Could not find FixGrower contrast in model params: "
+            f"{list(fit.params.index)}"
+        )
+    coef_key = coef_keys[0]
 
     residuals_normal = check_normality(fit.resid, alpha=alpha)
     result = {

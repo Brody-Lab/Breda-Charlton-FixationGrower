@@ -52,7 +52,8 @@ Breda-Charlton-FixationGrower/
 │   ├── suppSN_FULL.png              # supplement composite (e.g. suppS3_FULL.png)
 │   └── figNN<letter>_….png          # panel PNGs reproduced by notebooks
 ├── notebooks/
-│   └── fig01.ipynb
+│   ├── fig01.ipynb
+│   └── fig02.ipynb
 └── src/fixation_grower/
     ├── config.py      # cohort definitions, colors, stage constants
     ├── io.py          # data loaders (load_trials_df, load_poke_df, …)
