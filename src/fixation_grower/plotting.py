@@ -9,7 +9,7 @@ from fixation_grower import config
 from fixation_grower.paths import figures_dir
 
 
-def save_figure(fig: plt.Figure, name: str, fmt: str = "png") -> Path:
+def save_figure(fig: plt.Figure, name: str, fmt: str = "png", verbose: bool = False):
     """Save *fig* to ``figures/<name>.<fmt>`` at 300 dpi.
 
     Parameters
@@ -27,7 +27,9 @@ def save_figure(fig: plt.Figure, name: str, fmt: str = "png") -> Path:
     out_dir.mkdir(exist_ok=True)
     path = out_dir / f"{name}.{fmt}"
     fig.savefig(path, dpi=300, bbox_inches="tight")
-    return path
+
+    if verbose:
+        print(f"Saved figure to {path}")
 
 
 def box_strip_legacy_vs_fixgrower(
@@ -81,7 +83,11 @@ def box_strip_legacy_vs_fixgrower(
         **kwargs,
     )
 
-    ax.legend(title=None, frameon=False)
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(handles=handles, labels=labels, title=None, frameon=False)
+    elif ax.get_legend():
+        ax.get_legend().remove()
 
     if ylabel is not None:
         ax.set_ylabel(ylabel)
