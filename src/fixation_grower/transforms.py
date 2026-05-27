@@ -1,6 +1,131 @@
 """Data transformation and feature-engineering functions."""
 
+import numpy as np
 import pandas as pd
+
+from fixation_grower import config
+
+# ---------------------------------------------------------------------------
+# Curriculum phase constants (shared by supplement notebooks)
+# ---------------------------------------------------------------------------
+
+#: Internal stage_type values, in display order.
+STAGE_TYPE_ORDER = ["spoke", "grow_fix", "probe"]
+#: Human-readable x-axis labels matching STAGE_TYPE_ORDER.
+STAGE_CURRICULUM_LABELS = ["Side Poke", "Fixation Growth", "Probe"]
+
+
+# ---------------------------------------------------------------------------
+# Stage-type helpers (Figure S1)
+# ---------------------------------------------------------------------------
+
+def add_stage_type_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Add ``stage_type`` column: ``spoke``, ``grow_fix``, or ``probe``.
+
+    Bins stages 1–4 → ``spoke``, 5–8 → ``grow_fix``, 9–10 → ``probe``.
+    Raises ``ValueError`` if any ``stage`` value falls outside 1–10.
+    """
+    out = df.copy()
+    conditions = [
+        (out["stage"] >= 1) & (out["stage"] <= 4),
+        (out["stage"] >= 5) & (out["stage"] <= 8),
+        (out["stage"] >= 9) & (out["stage"] <= 10),
+    ]
+    out["stage_type"] = np.select(conditions, STAGE_TYPE_ORDER, default=pd.NA)
+    if out["stage_type"].isna().any():
+        invalid = out.loc[out["stage_type"].isna(), "stage"].unique()
+        raise ValueError(f"Unexpected stage values encountered: {invalid}")
+    return out
+
+
+def make_supp_s1_trials_df(tdf: pd.DataFrame) -> pd.DataFrame:
+    """Session-level trial count for Fig. S1 panel A.
+
+    Side Poke uses unique ``trial`` count; Fixation Growth and Probe use
+    ``n_settling_ins`` sum (center pokes attempted). Sessions with
+    ``n_trials >= 900`` are dropped (Bpod/port error days).
+    """
+    spoke = (
+        tdf.query("stage_type == 'spoke'")
+        .groupby(
+            ["animal_id", "stage_type", "fix_experiment", "date"],
+            observed=True,
+        )["trial"]
+        .nunique()
+        .reset_index(name="n_trials")
+    )
+    non_spoke = (
+        tdf.query("stage_type != 'spoke'")
+        .groupby(
+            ["animal_id", "stage_type", "fix_experiment", "date"],
+            observed=True,
+        )["n_settling_ins"]
+        .sum()
+        .reset_index(name="n_trials")
+    )
+    trials_df = pd.concat([spoke, non_spoke], ignore_index=True)
+    return trials_df.loc[trials_df["n_trials"] < 900].copy()
+
+
+def make_hit_rate_df(tdf: pd.DataFrame) -> pd.DataFrame:
+    """Session-level mean hit rate per (animal, stage_type, fix_experiment, date)."""
+    return (
+        tdf.groupby(
+            ["animal_id", "fix_experiment", "stage_type", "date"],
+            observed=True,
+        )["hits"]
+        .mean()
+        .reset_index(name="hit_rate")
+    )
+
+
+def make_no_answer_rate_df(tdf: pd.DataFrame) -> pd.DataFrame:
+    """Session-level no-answer rate (``result == 6``) per session."""
+    return (
+        tdf.groupby(
+            ["animal_id", "date", "stage_type", "fix_experiment"],
+            observed=True,
+        )["result"]
+        .apply(lambda x: (x == 6).mean())
+        .reset_index(name="no_answer_rate")
+    )
+
+
+def make_n_days_stage_type_df(tdf: pd.DataFrame) -> pd.DataFrame:
+    """Unique calendar days per (animal, fix_experiment, stage_type)."""
+    return (
+        tdf.groupby(
+            ["animal_id", "fix_experiment", "stage_type"],
+            observed=True,
+        )["date"]
+        .nunique()
+        .reset_index(name="n_days_in_stage_type")
+    )
+
+
+def _count_rig_switches(rig_series: pd.Series) -> int:
+    """Count rig-ID changes within a pre-sorted (animal, stage_type) group."""
+    return int((rig_series != rig_series.shift(1)).sum() - 1)
+
+
+def make_rig_switch_df(ddf: pd.DataFrame) -> pd.DataFrame:
+    """Rig switches and distinct rig count per (animal, stage_type).
+
+    Requires ``ddf`` to have ``rigid`` (rig identifier), ``stage_type``,
+    ``fix_experiment``, and ``date``. Sorting by date is done internally.
+    ``n_rigs`` = rig switches + 1.
+    """
+    ddf_sorted = ddf.sort_values(["animal_id", "date"])
+    rig_df = (
+        ddf_sorted.groupby(["animal_id", "stage_type"], observed=True)
+        .agg(
+            n_rig_switches=("rigid", _count_rig_switches),
+            fix_experiment=("fix_experiment", "first"),
+        )
+        .reset_index()
+    )
+    rig_df["n_rigs"] = rig_df["n_rig_switches"] + 1
+    return rig_df
 
 
 def compute_days_relative_to_stage(
@@ -101,3 +226,33 @@ def make_fixation_growth_df(df: pd.DataFrame) -> pd.DataFrame:
         "animal_id"
     ).max_fixation_dur.diff()
     return max_fixation_df
+
+
+def make_days_to_target_df(tdf: pd.DataFrame) -> pd.DataFrame:
+    """First day (relative to stage 5) each animal reached the fixation target."""
+    return (
+        tdf.query("has_reached_target_fixation == True")
+        .groupby(["animal_id", "fix_experiment"], observed=True)[
+            "days_relative_to_stage_5"
+        ]
+        .min()
+        .reset_index(name="days_to_target")
+    )
+
+
+def make_growing_stage_session_summary(
+    tdf: pd.DataFrame,
+    animal_id: str,
+) -> pd.DataFrame:
+    """Per-session trial count and violation rate in fixation growth (stages 5–7)."""
+    return (
+        tdf.query(
+            "animal_id == @animal_id and stage in @config.GROWING_STAGES"
+        )
+        .groupby(["animal_id", "date", "days_relative_to_stage_5"], observed=True)
+        .agg(
+            n_trials=("trial", "nunique"),
+            violation_rate=("violations", "mean"),
+        )
+        .reset_index()
+    )

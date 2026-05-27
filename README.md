@@ -53,7 +53,10 @@ Breda-Charlton-FixationGrower/
 │   └── figNN<letter>_….png          # panel PNGs reproduced by notebooks
 ├── notebooks/
 │   ├── fig01.ipynb
-│   └── fig02.ipynb
+│   ├── fig02.ipynb
+│   ├── suppS1.ipynb          # Supplement Figure S1: metrics by curricula phase + stage progressions
+│   ├── suppS2.ipynb          # Supplement Figure S2: Legacy growth-ceiling simulations (writes data/figS2_simulations/simulation_results_seed_{0..29,30}.parquet)
+│   └── suppS3.ipynb          # Supplement Figure S3: raw fixation, violation, and rig data
 └── src/fixation_grower/
     ├── config.py      # cohort definitions, colors, stage constants
     ├── io.py          # data loaders (load_trials_df, load_poke_df, …)

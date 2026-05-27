@@ -4,9 +4,7 @@
 [Biorxiv](https://www.biorxiv.org/content/10.1101/2025.09.12.675850v1.full.pdf)
 
 Next:
-- supplement 1
-- supplement 2
-- supplement 3
+
 - figure 3
 
 
