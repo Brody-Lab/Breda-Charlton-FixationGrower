@@ -117,3 +117,6 @@ VALID_PALETTE = [VIOLATION_COLOR, VALID_COLOR]
 PROBE_STAGES = [9, 10]
 GROWING_STAGES = [5, 6, 7]
 SPOKE_STAGES = [1, 2, 3, 4]
+
+# Excluded from Fig. 3 Panel C mixed-effects model (Methods: Excluded Animals)
+PROBE_OUTLIER = "R047"

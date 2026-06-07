@@ -3,6 +3,8 @@
 import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
+
+from fixation_grower import config
 from scipy.stats import mannwhitneyu, shapiro, ttest_ind, wilcoxon
 from statsmodels.stats.multitest import multipletests
 
@@ -404,3 +406,139 @@ def compare_paired_wilcoxon(
             }
         ]
     )
+
+
+def _wilcoxon_stable_vs_random(
+    df: pd.DataFrame,
+    metric_col: str,
+    cohort: str,
+    stable_stage: int = 9,
+    random_stage: int = 10,
+) -> dict:
+    """Animal-level mean per probe stage; Wilcoxon on stable vs random."""
+    animal_stage = (
+        df.loc[df["fix_experiment"] == cohort]
+        .groupby(["animal_id", "stage"], observed=True)[metric_col]
+        .mean()
+        .reset_index()
+    )
+    wide = (
+        animal_stage.pivot(index="animal_id", columns="stage", values=metric_col)
+        .dropna(subset=[stable_stage, random_stage])
+    )
+    if len(wide) == 0:
+        return {
+            "comparison": f"within_{cohort}_stable_vs_random",
+            "test_type": "insufficient_data",
+            "test_statistic": np.nan,
+            "p_val_raw": np.nan,
+            "n_pairs": 0,
+        }
+    stat, p_val = wilcoxon(wide[random_stage], wide[stable_stage])
+    return {
+        "comparison": f"within_{cohort}_stable_vs_random",
+        "test_type": "wilcoxon_signed_rank",
+        "test_statistic": stat,
+        "p_val_raw": p_val,
+        "n_pairs": len(wide),
+    }
+
+
+def compare_fig03_panel_a_stats_holm(
+    probe_violation_df: pd.DataFrame,
+    metric_col: str = "violation_rate",
+    alpha: float = 0.05,
+) -> pd.DataFrame:
+    """Fig. 3 Panel A: pooled Holm across four legacy-notebook comparisons.
+
+    1. Across cohort — stable probe (stage 9): Mann–Whitney / Welch
+    2. Across cohort — random probe (stage 10): Mann–Whitney / Welch
+    3. Within Legacy — stable vs random: Wilcoxon signed-rank
+    4. Within FixGrower — stable vs random: Wilcoxon signed-rank
+
+    Holm correction is applied once across all four raw p-values.
+    """
+    rows: list[dict] = []
+
+    for stage, label in ((9, "across_stable_stage9"), (10, "across_random_stage10")):
+        sub = probe_violation_df.loc[probe_violation_df["stage"] == stage]
+        cmp = compare_legacy_fixgrower(sub, metric_col, alpha=alpha).iloc[0].to_dict()
+        rows.append(
+            {
+                "comparison": label,
+                "test_type": cmp["test_type"],
+                "test_statistic": cmp["test_statistic"],
+                "p_val_raw": cmp["p_val_raw"],
+                "n_Legacy": cmp.get("n_Legacy"),
+                "n_FixGrower": cmp.get("n_FixGrower"),
+            }
+        )
+
+    rows.append(_wilcoxon_stable_vs_random(probe_violation_df, metric_col, "Legacy"))
+    rows.append(_wilcoxon_stable_vs_random(probe_violation_df, metric_col, "FixGrower"))
+
+    out = pd.DataFrame(rows)
+    raw = out["p_val_raw"].to_numpy(dtype=float)
+    valid = ~np.isnan(raw)
+    p_adj = np.full(len(raw), np.nan)
+    reject = np.full(len(raw), np.nan)
+    if valid.any():
+        rej, pv_adj, _, _ = multipletests(raw[valid], alpha=alpha, method="holm")
+        p_adj[valid] = pv_adj
+        reject[valid] = rej.astype(float)
+
+    out["p_val_holm"] = p_adj
+    out["reject_h0_holm"] = reject
+    return out
+
+
+def compare_probe_violation_interaction_mixedlm(
+    df: pd.DataFrame,
+    metric_col: str = "violation_rate",
+    exclude_animals: tuple[str, ...] | None = (config.PROBE_OUTLIER,),
+    alpha: float = 0.05,
+) -> pd.DataFrame:
+    """Fig. 3 Panel C: ``metric ~ days_to_target * fix_experiment`` mixed LM.
+
+    Random intercept by ``animal_id``. Legacy is the reference level for
+    ``fix_experiment``. Set ``exclude_animals=()`` to include all animals.
+    """
+    sub = df.dropna(subset=[metric_col, "days_to_target", "fix_experiment"])
+    if exclude_animals:
+        sub = sub.loc[~sub["animal_id"].isin(exclude_animals)]
+
+    if sub.empty or sub["fix_experiment"].nunique() < 2:
+        return pd.DataFrame(
+            [
+                {
+                    "test_type": "insufficient_data",
+                    "excluded_animals": exclude_animals,
+                    "n_obs": len(sub),
+                }
+            ]
+        )
+
+    formula = (
+        f"{metric_col} ~ days_to_target * "
+        'C(fix_experiment, Treatment(reference="Legacy"))'
+    )
+    model = smf.mixedlm(formula=formula, data=sub, groups=sub["animal_id"])
+    try:
+        fit = model.fit(method="lbfgs", disp=False)
+    except Exception as e:
+        raise RuntimeError(f"Model fitting failed: {e}") from e
+
+    rows: list[dict] = []
+    for term in fit.params.index:
+        rows.append(
+            {
+                "term": term,
+                "test_type": "mixedlm_random_intercept",
+                "excluded_animals": exclude_animals,
+                "test_statistic": float(fit.tvalues[term]),
+                "p_val_raw": float(fit.pvalues[term]),
+                "coef": float(fit.params[term]),
+                "residuals_normal": check_normality(fit.resid, alpha=alpha),
+            }
+        )
+    return pd.DataFrame(rows)

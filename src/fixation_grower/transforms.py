@@ -240,6 +240,26 @@ def make_days_to_target_df(tdf: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def make_probe_violation_session_df(tdf: pd.DataFrame) -> pd.DataFrame:
+    """Per-session violation rate (%) in probe stages 9–10."""
+    return (
+        tdf.query("stage in @config.PROBE_STAGES")
+        .groupby(
+            [
+                "date",
+                "fix_experiment",
+                "animal_id",
+                "stage",
+                "days_relative_to_stage_10",
+            ],
+            observed=True,
+        )
+        .agg(violation_rate=("violations", "mean"))
+        .reset_index()
+        .assign(violation_rate=lambda d: d["violation_rate"] * 100)
+    )
+
+
 def make_growing_stage_session_summary(
     tdf: pd.DataFrame,
     animal_id: str,
