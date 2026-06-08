@@ -5,7 +5,8 @@
 
 Next:
 
-- figure 5 + DMS data (cleaned trails and fix grow days to target)
+- figure 5 + DMS data (cleaned trails and fix grow days to target in old to migrate add fig05_)
+- update readme w/ fig 4, 5
 
 
 Supplmental linking:
