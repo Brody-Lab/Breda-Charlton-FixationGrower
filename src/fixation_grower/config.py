@@ -120,3 +120,10 @@ SPOKE_STAGES = [1, 2, 3, 4]
 
 # Excluded from Fig. 3 Panel C mixed-effects model (Methods: Excluded Animals)
 PROBE_OUTLIER = "R047"
+
+# Stage 11 continued assessment (Figure 4)
+STAGE11_ASSESSMENT_DAYS = 100
+STAGE11_EXAMPLE_SESSIONS = 7
+STAGE11_TRUNCATED_EXP_TAU = 1.2
+STAGE11_TRUNCATED_EXP_MIN = 1.0
+STAGE11_TRUNCATED_EXP_MAX = 2.0

@@ -5,12 +5,14 @@
 
 Next:
 
-- figure 3
+- figure 5 + DMS data (cleaned trails and fix grow days to target)
 
 
 Supplmental linking:
 - fig 1: Supp table 1 and Supp table 2
 - fig 2: Sup figs 1 (spoke), 2(simulations), 3(rig switches/growthn)
+- update the figure 4 legend to be 'R043' not 'R053'
 
 Stats to check:
 - [ ] Figure 2 notebook to pdf (notebooks are the same)
+

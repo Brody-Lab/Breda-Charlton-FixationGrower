@@ -76,3 +76,9 @@ def load_poke_df(stages: str = "all", root_dir: Path | None = None) -> pd.DataFr
         pdf = pdf.query("stage == 9 or stage == 10").copy()
 
     return pdf
+
+
+def load_fixgrower_continued_df(root_dir: Path | None = None) -> pd.DataFrame:
+    """Load stage-11 continued assessment trials (FixGrower only)."""
+    root = Path(root_dir) if root_dir is not None else data_dir()
+    return pd.read_parquet(root / "fig04_fixgrower_continued_stage11.parquet")

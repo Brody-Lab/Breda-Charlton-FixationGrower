@@ -260,6 +260,48 @@ def make_probe_violation_session_df(tdf: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def add_days_since_probe_end(df: pd.DataFrame) -> pd.DataFrame:
+    """Add ``days_relative_to_stage_11_adj`` (day 1 = first post-probe day)."""
+    out = df.copy()
+    out["days_relative_to_stage_11_adj"] = out["days_relative_to_stage_11"] + 1
+    return out
+
+
+def make_stage11_daily_summary_df(
+    df: pd.DataFrame,
+    n_days: int | None = None,
+) -> pd.DataFrame:
+    """Per-animal daily violation summary for stage-11 continued assessment."""
+    if n_days is None:
+        n_days = config.STAGE11_ASSESSMENT_DAYS
+    return (
+        df.query("days_relative_to_stage_11_adj <= @n_days")
+        .groupby(["animal_id", "days_relative_to_stage_11_adj"], observed=True)
+        .agg(
+            violation_rate=("violation_rate", "mean"),
+            n_trials=("trial", "count"),
+            fixation_duration=("fixation_dur", "max"),
+        )
+        .reset_index()
+        .assign(violation_rate=lambda d: (d["violation_rate"] * 100).astype("float64"))
+    )
+
+
+def make_stage11_session_fix_dur_df(
+    df: pd.DataFrame,
+    n_days: int | None = None,
+) -> pd.DataFrame:
+    """Per-session max fixation duration within the assessment window."""
+    if n_days is None:
+        n_days = config.STAGE11_ASSESSMENT_DAYS
+    return (
+        df.query("days_relative_to_stage_11_adj <= @n_days")
+        .groupby(["animal_id", "date"], observed=True)["fixation_dur"]
+        .max()
+        .reset_index()
+    )
+
+
 def make_growing_stage_session_summary(
     tdf: pd.DataFrame,
     animal_id: str,
